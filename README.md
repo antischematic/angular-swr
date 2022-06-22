@@ -1,27 +1,62 @@
-# Ngxt
+# Angular SWR
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 14.0.2.
+Data fetching for Angular 14+
 
-## Development server
+## Usage
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
+Create a service that fetches data
 
-## Code scaffolding
+```ts
+const endpoint = "https://jsonplaceholder.typicode.com/todos"
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+@Injectable({ providedIn: "root" })
+export class Fetcher implements Fetchable<Todo[]> {
+   fetch(userId: string) {
+      return this.http.get(endpoint, { params: { userId }})
+   }
+}
+```
 
-## Build
+Create a resource
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
+```ts
+import { createResource, RevalidateOnFocus, RevalidateOnReconnect } from "@mmuscat/angular-swr"
 
-## Running unit tests
+export const TODOS = createResource(Fetcher, {
+   features: [RevalidateOnFocus, RevalidateOnReconnect]
+})
+```
 
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
+Provide and use resource in component
 
-## Running end-to-end tests
+```ts
+import { TODOS } from "./resource"
 
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
+@Component({
+   selector: "app-todos",
+   templateUrl: "./todos.component.html",
+   providers: [TODOS],
+})
+export class TodosComponent {
+   protected todos = inject(TODOS)
+   
+   @Input()
+   userId: string
+   
+   ngOnChanges() {
+      this.todos.fetch(this.userId)
+   }
+}
+```
 
-## Further help
+Read values in template
 
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.io/cli) page.
+```html
+<!-- todos.component.html -->
+<div *ngIf="todos.error">
+   Something went wrong
+   <button (click)="todos.revalidate()">Retry</button>
+</div>
+<spinner *ngIf="todos.pending"></spinner>
+<todo *ngFor="let todo of todos.value" [value]="todo"></todo>
+```

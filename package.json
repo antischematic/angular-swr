@@ -1,5 +1,5 @@
 {
-  "name": "ngxt",
+  "name": "@mmuscat/angular-swr",
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
