@@ -1,11 +1,12 @@
-import { fakeAsync, flush, TestBed, tick } from "@angular/core/testing"
+import { fakeAsync, TestBed, tick } from "@angular/core/testing"
 import {
    createResource,
    Fetchable,
    Resource,
    ResourceOptions,
    ResourceState,
-   RevalidateOnFocus, RevalidateOnReconnect,
+   RevalidateOnFocus,
+   RevalidateOnReconnect,
 } from "./resource"
 import { EMPTY, mapTo, Observable, switchMap, throwError, timer } from "rxjs"
 import {
@@ -15,7 +16,8 @@ import {
    DoCheck,
    ErrorHandler,
    inject,
-   Injectable, Type,
+   Injectable,
+   Type,
 } from "@angular/core"
 import createSpy = jasmine.createSpy
 import { DOCUMENT } from "@angular/common"
@@ -42,13 +44,16 @@ const TEST_ROOT = createResource(FetchTest, { providedIn: "root" })
 const TEST_NOT_PROVIDED = createResource(FetchTest)
 const TEST_IMMUTABLE = createResource(FetchTest, {
    immutable: true,
-   features: [RevalidateOnFocus, RevalidateOnReconnect]
+   features: [RevalidateOnFocus, RevalidateOnReconnect],
 })
 
-function createTestResource<T extends Fetchable>(fetchable: Type<T>, options?: ResourceOptions): Resource<T> {
+function createTestResource<T extends Fetchable>(
+   fetchable: Type<T>,
+   options?: ResourceOptions,
+): Resource<T> {
    const resource = createResource(fetchable, options)
    TestBed.configureTestingModule({
-      providers: [resource]
+      providers: [resource],
    })
    return TestBed.inject(resource)
 }
@@ -295,14 +300,19 @@ describe("Resource", () => {
          } catch (e) {
             error = e
          }
-         expect(error?.message).toContain('No provider for Resource<FetchTest>!')
+         expect(error?.message).toContain(
+            "No provider for Resource<FetchTest>!",
+         )
       })
 
       it("should revalidate on focus", fakeAsync(() => {
          const resource = createTestResource(FetchTest, {
-            features: [RevalidateOnFocus]
+            features: [RevalidateOnFocus],
          })
-         const fetch = spyOn(TestBed.inject(FetchTest), "fetch").and.callThrough()
+         const fetch = spyOn(
+            TestBed.inject(FetchTest),
+            "fetch",
+         ).and.callThrough()
          const document = TestBed.inject(DOCUMENT)
 
          resource.fetch(1, 2, 3).read()
@@ -319,9 +329,12 @@ describe("Resource", () => {
 
       it("should revalidate on reconnect", fakeAsync(() => {
          const resource = createTestResource(FetchTest, {
-            features: [RevalidateOnReconnect]
+            features: [RevalidateOnReconnect],
          })
-         const fetch = spyOn(TestBed.inject(FetchTest), "fetch").and.callThrough()
+         const fetch = spyOn(
+            TestBed.inject(FetchTest),
+            "fetch",
+         ).and.callThrough()
          const document = TestBed.inject(DOCUMENT)
 
          resource.fetch(1, 2, 3).read()
@@ -372,7 +385,9 @@ describe("Resource", () => {
          const fixture = TestBed.createComponent(TestComponent)
          const spy = createSpy()
 
-         fixture.componentInstance.resource.source = new Observable<any>(() => spy)
+         fixture.componentInstance.resource.source = new Observable<any>(
+            () => spy,
+         )
 
          fixture.autoDetectChanges()
 
@@ -384,7 +399,10 @@ describe("Resource", () => {
       })
 
       it("should revalidate if stale", fakeAsync(() => {
-         const fetch = spyOn(TestBed.inject(FetchTest), "fetch").and.callThrough()
+         const fetch = spyOn(
+            TestBed.inject(FetchTest),
+            "fetch",
+         ).and.callThrough()
          const fixture = TestBed.createComponent(TestComponent)
 
          fixture.autoDetectChanges()
@@ -404,7 +422,10 @@ describe("Resource", () => {
       }))
 
       it("should not revalidate if immutable", fakeAsync(() => {
-         const fetch = spyOn(TestBed.inject(FetchTest), "fetch").and.callThrough()
+         const fetch = spyOn(
+            TestBed.inject(FetchTest),
+            "fetch",
+         ).and.callThrough()
          const fixture = TestBed.createComponent(TestImmutableComponent)
          const document = TestBed.inject(DOCUMENT)
 

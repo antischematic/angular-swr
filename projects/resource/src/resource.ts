@@ -181,7 +181,10 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
       try {
          const cacheKey = this.getCacheKey(params)
          const hasCache = this.cache.has(cacheKey)
-         const shouldDedupe = isWithinDedupeInterval(this.cache.get(cacheKey + 'dedupe'), this.options.dedupeIntervalMs ?? 2000)
+         const shouldDedupe = isWithinDedupeInterval(
+            this.cache.get(cacheKey + "dedupe"),
+            this.options.dedupeIntervalMs ?? 2000,
+         )
          const shouldConnect = this.state !== ResourceState.EMPTY
          this.state = ResourceState.READY
          this.params = params
@@ -195,7 +198,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
                this.fetchable.fetch(...params),
                this.errorHandler,
             )
-            this.cache.set(cacheKey + 'dedupe', Date.now())
+            this.cache.set(cacheKey + "dedupe", Date.now())
             this.cache.set(cacheKey, source)
             this.source = source
          }
@@ -261,7 +264,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
       } else {
          const cacheKey = this.getCacheKey(this.params)
          this.cache.delete(cacheKey)
-         this.cache.delete(cacheKey + 'dedupe')
+         this.cache.delete(cacheKey + "dedupe")
       }
       return this
    }
