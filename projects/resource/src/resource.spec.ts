@@ -1,4 +1,4 @@
-import { fakeAsync, TestBed, tick } from "@angular/core/testing"
+import { fakeAsync, flush, TestBed, tick } from "@angular/core/testing"
 import {
    createResource,
    Fetchable,
@@ -298,7 +298,7 @@ describe("Resource", () => {
          expect(error?.message).toContain('No provider for Resource<FetchTest>!')
       })
 
-      it("should revalidate on focus", () => {
+      it("should revalidate on focus", fakeAsync(() => {
          const resource = createTestResource(FetchTest, {
             features: [RevalidateOnFocus]
          })
@@ -306,12 +306,18 @@ describe("Resource", () => {
          const document = TestBed.inject(DOCUMENT)
 
          resource.fetch(1, 2, 3).read()
+
+         // default dedupe interval 2000ms
+         tick(2000)
+
          document.dispatchEvent(new Event("visibilitychange"))
+         // request timer
+         tick(500)
 
          expect(fetch).toHaveBeenCalledTimes(2)
-      })
+      }))
 
-      it("should revalidate on reconnect", () => {
+      it("should revalidate on reconnect", fakeAsync(() => {
          const resource = createTestResource(FetchTest, {
             features: [RevalidateOnReconnect]
          })
@@ -319,10 +325,15 @@ describe("Resource", () => {
          const document = TestBed.inject(DOCUMENT)
 
          resource.fetch(1, 2, 3).read()
+         // default dedupe interval 2000ms
+         tick(2000)
+
          document.defaultView?.dispatchEvent(new Event("online"))
+         // request timer
+         tick(500)
 
          expect(fetch).toHaveBeenCalledTimes(2)
-      })
+      }))
    })
 
    describe("integration", () => {
@@ -381,6 +392,9 @@ describe("Resource", () => {
 
          expect(fetch).toHaveBeenCalledTimes(1)
 
+         // default dedupe interval 2000ms - 500ms
+         tick(1500)
+
          const fixture2 = TestBed.createComponent(TestComponent)
 
          fixture2.autoDetectChanges()
@@ -389,7 +403,7 @@ describe("Resource", () => {
          expect(fetch).toHaveBeenCalledTimes(2)
       }))
 
-      it("should not revalidate if stale", fakeAsync(() => {
+      it("should not revalidate if immutable", fakeAsync(() => {
          const fetch = spyOn(TestBed.inject(FetchTest), "fetch").and.callThrough()
          const fixture = TestBed.createComponent(TestImmutableComponent)
          const document = TestBed.inject(DOCUMENT)
