@@ -25,7 +25,7 @@ export interface ResourceOptions {
    providedIn?: Type<any> | "root" | "platform" | "any" | null
    immutable?: boolean
    timeoutMs?: number
-   dedupeIntervalMs?: number
+   dedupeMs?: number
    serialize?: (...params: any[]) => string
    features?: ResourceFeatureWithOptions<any>[]
    [key: string]: any
@@ -121,7 +121,7 @@ export class CacheRegistry {
    }
 }
 
-function isWithinDedupeInterval(then: number, dedupeIntervalMs: number) {
+function isWithinDedupeInterval(dedupeIntervalMs: number, then: number = -Infinity) {
    return Date.now() - then < dedupeIntervalMs
 }
 
@@ -134,7 +134,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
    private readonly features: readonly [ResourceFeature, {}][]
    private connected: boolean
    private subscription: Subscription
-   readonly cache: Map<any, any>
+   readonly cache: Map<any, { source: Observable<FetchValue<T>>, lastModified: number }>
 
    #value?: FetchValue<T>
    params?: FetchParameters<T>
@@ -168,24 +168,23 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
    fetch(...params: FetchParameters<T>) {
       try {
          const cacheKey = this.getCacheKey(params)
-         const hasCache = this.cache.has(cacheKey)
+         const cache = this.cache.get(cacheKey)
          const shouldDedupe = isWithinDedupeInterval(
-            this.cache.get(cacheKey + "dedupe"),
-            this.options.dedupeIntervalMs ?? 2000,
+            this.options.dedupeMs ?? 2000,
+            cache?.lastModified,
          )
          const shouldConnect = this.state !== ResourceState.EMPTY
          this.state = ResourceState.READY
          this.params = params
-         if (hasCache) {
-            this.source = this.cache.get(cacheKey)
+         if (cache) {
+            this.source = cache.source
          }
-         if ((!this.options.immutable || !hasCache) && !shouldDedupe) {
+         if ((!this.options.immutable || !cache) && !shouldDedupe) {
             const source = createFetchObservable(
                cacheKey,
                this.fetchable.fetch(...params),
             )
-            this.cache.set(cacheKey + "dedupe", Date.now())
-            this.cache.set(cacheKey, source)
+            this.cache.set(cacheKey, { source, lastModified: Date.now() })
             this.source = source
          }
          if (shouldConnect) {
@@ -250,7 +249,6 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
       } else {
          const cacheKey = this.getCacheKey(this.params)
          this.cache.delete(cacheKey)
-         this.cache.delete(cacheKey + "dedupe")
       }
       return this
    }
