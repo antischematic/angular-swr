@@ -22,10 +22,13 @@ export class Fetcher implements Fetchable<Todo[]> {
 Create a resource
 
 ```ts
-import { createResource, RevalidateOnFocus, RevalidateOnReconnect } from "@mmuscat/angular-swr"
+import { createResource, revalidateOnFocus, revalidateOnReconnect } from "@mmuscat/angular-swr"
 
 export const TODOS = createResource(Fetcher, {
-   features: [RevalidateOnFocus, RevalidateOnReconnect]
+   features: [
+      revalidateOnFocus(), 
+      revalidateOnReconnect()
+   ]
 })
 ```
 
@@ -72,7 +75,7 @@ export interface ResourceOptions {
    timeoutMs?: number
    dedupeIntervalMs?: number
    serialize?: (...params: any[]) => string
-   features?: Type<ResourceFeature<any>>[]
+   features?: ResourceFeatureWithOptions<{}>[]
 }
 ```
 
@@ -81,49 +84,58 @@ export interface ResourceOptions {
 | providedIn       | null           | Configure which module the resource is provided in                                                        |
 | immutable        | false          | Prevent refetching a resource that is already cached with the given params                                |
 | timeoutMs        | void           | How long a resource should wait after fetching without receiving a response before it is marked as `slow` |
-| dedupeIntervalMs | 2000           | After fetching, discard additional fetches for same params within the configured time period              |
+| dedupeIntervalMs | 2000           | How long a resource should wait before allowing a duplicate fetch with the same params                    |
 | serialize        | JSON.stringify | Serializer used to stringify fetch parameters                                                             |
-| features         | void           | A list of types implementing `ResourceFeature` that add additional behaviours to the resource             |
+| features         | void           | A list of `ResourceFeatureWithOptions` that add additional behaviours to the resource                     |
 
 ## Adding Features
 
 Resource behavior can be customised by adding features.
 
-### `RevalidateOnFocus`
+### `revalidateOnFocus`
 
 Revalidate a resource every time the current page receives window focus.
 
-### `RevalidateOnReconnect`
+### `revalidateOnReconnect`
 
-Revalidate a resource every whenever the network connection comes back online.
+Revalidate a resource every time the network connection comes back online.
+
+### `revalidateOnInterval`
+
+Revalidate a resource periodically according to a timer.
 
 ### Writing Custom Features
 
 Create a class that implements the `ResourceFeature` interface.
 
 ```ts
-interface ResourceFeature<T extends Fetchable> {
-   onInit?(resource: Resource<T>): void
-   onConnect?(resource: Resource<T>): void
-   onDisconnect?(resource: Resource<T>): void
-   onDestroy?(resource: Resource<T>): void
+interface ResourceFeature<T extends {}> {
+   onInit?(resource: Resource, options: T): void
+   onConnect?(resource: Resource, options: T): void
+   onDisconnect?(resource: Resource, options: T): void
+   onDestroy?(resource: Resource, options: T): void
 }
 ```
 
 Example
 
 ```ts
-import { ResourceFeature, Fetchable } from "@mmuscat/angular-swr"
-import { Resource } from "./resource"
+import { createFeature, Fetchable, Resource, ResourceFeature } from "@mmuscat/angular-swr"
+
+interface LoggerOptions {
+   logger?: typeof console
+}
 
 @Injectable({ providedIn: "root" })
-export class LoggerFeature<T extends Fetchable> implements ResourceFeature<T> {
-   next(resource: Resource<T>) {
-      console.log(resource.value)
+export class Logger implements ResourceFeature<LoggerOptions> {
+   onInit(resource: Resource<T>, { logger = console }: LoggerOptions) {
+      resource.subscribe(() => {
+         logger.log(resource.value)
+      })
    }
+}
 
-   onInit(resource: Resource<T>) {
-      resource.subscribe(this)
-   }
+export function logger(options: LoggerOptions = {}) {
+   return createFeature(Logger, options)
 }
 ```

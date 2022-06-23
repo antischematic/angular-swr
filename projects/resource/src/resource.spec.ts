@@ -4,8 +4,8 @@ import {
    Fetchable,
    Resource,
    ResourceOptions,
-   ResourceState,
-   RevalidateOnFocus,
+   ResourceState, RevalidateIfStale, revalidateOnFocus,
+   RevalidateOnFocus, revalidateOnInterval, revalidateOnReconnect,
    RevalidateOnReconnect,
 } from "./resource"
 import { EMPTY, mapTo, Observable, switchMap, throwError, timer } from "rxjs"
@@ -44,7 +44,11 @@ const TEST_ROOT = createResource(FetchTest, { providedIn: "root" })
 const TEST_NOT_PROVIDED = createResource(FetchTest)
 const TEST_IMMUTABLE = createResource(FetchTest, {
    immutable: true,
-   features: [RevalidateOnFocus, RevalidateOnReconnect],
+   features: [
+      revalidateOnFocus(),
+      revalidateOnReconnect(),
+      revalidateOnInterval(1000),
+   ],
 })
 
 function createTestResource<T extends Fetchable>(
@@ -307,7 +311,7 @@ describe("Resource", () => {
 
       it("should revalidate on focus", fakeAsync(() => {
          const resource = createTestResource(FetchTest, {
-            features: [RevalidateOnFocus],
+            features: [revalidateOnFocus()],
          })
          const fetch = spyOn(
             TestBed.inject(FetchTest),
@@ -329,7 +333,7 @@ describe("Resource", () => {
 
       it("should revalidate on reconnect", fakeAsync(() => {
          const resource = createTestResource(FetchTest, {
-            features: [RevalidateOnReconnect],
+            features: [revalidateOnReconnect()],
          })
          const fetch = spyOn(
             TestBed.inject(FetchTest),

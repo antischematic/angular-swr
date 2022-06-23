@@ -8,15 +8,12 @@ import {
    Type,
 } from "@angular/core"
 import {
-   catchError,
    EMPTY,
-   merge,
    Observable,
    PartialObserver,
    shareReplay,
    Subject,
    Subscription,
-   takeUntil,
 } from "rxjs"
 import { DOCUMENT } from "@angular/common"
 
@@ -30,7 +27,8 @@ export interface ResourceOptions {
    timeoutMs?: number
    dedupeIntervalMs?: number
    serialize?: (...params: any[]) => string
-   features?: Type<ResourceFeature<any>>[]
+   features?: ResourceFeatureWithOptions<any>[]
+   [key: string]: any
 }
 
 type FetchParameters<T extends Fetchable> = Parameters<T["fetch"]>
@@ -104,19 +102,9 @@ const defaultOptions: ResourceOptions = {}
 
 function createFetchObservable(
    cacheKey: string,
-   previous: Observable<any>,
    source: Observable<any>,
-   errorHandler: ErrorHandler,
 ) {
-   const next = source.pipe(shareReplay(1))
-   previous = previous.pipe(
-      takeUntil(next),
-      catchError((error) => {
-         errorHandler.handleError(error)
-         return EMPTY
-      }),
-   )
-   return merge(previous, next)
+   return source.pipe(shareReplay(1))
 }
 
 @Injectable({ providedIn: "root" })
@@ -143,7 +131,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
 {
    private readonly errorHandler: ErrorHandler
    private readonly observer: ResourceSubject<T>
-   private readonly features: ResourceFeature<T>[]
+   private readonly features: readonly [ResourceFeature, {}][]
    private connected: boolean
    private subscription: Subscription
    readonly cache: Map<any, any>
@@ -194,9 +182,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
          if ((!this.options.immutable || !hasCache) && !shouldDedupe) {
             const source = createFetchObservable(
                cacheKey,
-               this.source,
                this.fetchable.fetch(...params),
-               this.errorHandler,
             )
             this.cache.set(cacheKey + "dedupe", Date.now())
             this.cache.set(cacheKey, source)
@@ -234,20 +220,20 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
          if (timeoutMs) {
             this.timeout = setTimeout(Resource.slow, timeoutMs, this)
          }
-         this.subscription = this.source.subscribe(this.observer)
-         for (const feature of this.features) {
-            feature.onConnect?.(this)
+         for (const [feature, options] of this.features) {
+            feature.onConnect?.(this, options)
          }
+         this.subscription = this.source.subscribe(this.observer)
       }
    }
 
    disconnect() {
       if (this.connected) {
          this.connected = false
-         this.subscription.unsubscribe()
-         for (const feature of this.features) {
-            feature.onDisconnect?.(this)
+         for (const [feature, options] of this.features) {
+            feature.onDisconnect?.(this, options)
          }
+         this.subscription.unsubscribe()
       }
    }
 
@@ -287,8 +273,8 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
 
    ngOnDestroy() {
       this.disconnect()
-      for (const feature of this.features) {
-         feature.onDestroy?.(this)
+      for (const [feature, options] of this.features) {
+         feature.onDestroy?.(this, options)
       }
    }
 
@@ -311,11 +297,11 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
       this.pending = false
       this.slow = false
       this.features = options.features
-         ? options.features.map((token) => inject(token))
+         ? options.features.map(({ type, options }) => [inject(type), options])
          : []
 
-      for (const feature of this.features) {
-         feature.onInit?.(this)
+      for (const [feature, options] of this.features) {
+         feature.onInit?.(this, options)
       }
    }
 
@@ -345,11 +331,16 @@ export function createResource<T extends Fetchable<any>>(
    return ResourceImpl
 }
 
-interface ResourceFeature<T extends Fetchable> {
-   onInit?(resource: Resource<T>): void
-   onConnect?(resource: Resource<T>): void
-   onDisconnect?(resource: Resource<T>): void
-   onDestroy?(resource: Resource<T>): void
+interface ResourceFeature<T extends {} = {}> {
+   onInit?(resource: Resource, options: T): void
+   onConnect?(resource: Resource, options: T): void
+   onDisconnect?(resource: Resource, options: T): void
+   onDestroy?(resource: Resource, options: T): void
+}
+
+interface ResourceFeatureWithOptions<T extends {}> {
+   type: Type<ResourceFeature>,
+   options: T
 }
 
 @Injectable({ providedIn: "root" })
@@ -382,6 +373,10 @@ export class RevalidateOnFocus implements ResourceFeature<any>, OnDestroy {
    }
 }
 
+export function revalidateOnFocus() {
+   return createFeature(RevalidateOnFocus)
+}
+
 @Injectable({ providedIn: "root" })
 export class RevalidateOnReconnect implements ResourceFeature<any>, OnDestroy {
    private document = inject(DOCUMENT)
@@ -407,5 +402,54 @@ export class RevalidateOnReconnect implements ResourceFeature<any>, OnDestroy {
 
    constructor() {
       this.document.defaultView?.addEventListener("online", this)
+   }
+}
+
+export function revalidateOnReconnect() {
+   return createFeature(RevalidateOnReconnect)
+}
+
+@Injectable({ providedIn: "root" })
+export class RevalidateIfStale {}
+
+interface RevalidateIntervalOptions {
+   interval: number
+}
+
+@Injectable({ providedIn: "root" })
+export class RevalidateOnInterval implements ResourceFeature<RevalidateIntervalOptions> {
+   private intervals = new Map<Resource, number>()
+
+   onConnect(resource: Resource, options: RevalidateIntervalOptions) {
+      if (options.interval) {
+         resource.subscribe(() => {
+            if (resource.error || resource.complete) {
+               this.onDisconnect(resource)
+            }
+         })
+         const interval = setInterval(RevalidateOnInterval.revalidate, options.interval, resource)
+         this.intervals.set(resource, interval)
+      }
+   }
+
+   onDisconnect(resource: Resource) {
+      const interval = this.intervals.get(resource)
+      clearInterval(interval)
+      this.intervals.delete(resource)
+   }
+
+   static revalidate(resource: Resource) {
+      resource.revalidate()
+   }
+}
+
+export function revalidateOnInterval(interval: number) {
+   return createFeature(RevalidateOnInterval, { interval })
+}
+
+export function createFeature<T extends {}>(type: Type<ResourceFeature<T>>, options: T = {} as T): ResourceFeatureWithOptions<T> {
+   return {
+      type,
+      options
    }
 }
