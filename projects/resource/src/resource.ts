@@ -134,7 +134,8 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
    private readonly features: readonly [ResourceFeature, {}][]
    private connected: boolean
    private subscription: Subscription
-   readonly cache: Map<any, { source: Observable<FetchValue<T>>, lastModified: number }>
+   private cacheKey?: string
+   readonly cache: Map<any, { source: Observable<FetchValue<T>>, lastModified?: number }>
 
    #value?: FetchValue<T>
    params?: FetchParameters<T>
@@ -176,6 +177,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
          const shouldConnect = this.state !== ResourceState.EMPTY
          this.state = ResourceState.READY
          this.params = params
+         this.cacheKey = cacheKey
          if (cache) {
             this.source = cache.source
          }
@@ -247,8 +249,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
       if (all) {
          this.cache.clear()
       } else {
-         const cacheKey = this.getCacheKey(this.params)
-         this.cache.delete(cacheKey)
+         this.cache.delete(this.cacheKey)
       }
       return this
    }

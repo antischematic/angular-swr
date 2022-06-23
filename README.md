@@ -22,12 +22,13 @@ export class Fetcher implements Fetchable<Todo[]> {
 Create a resource
 
 ```ts
-import { createResource, revalidateOnFocus, revalidateOnReconnect } from "@mmuscat/angular-swr"
+import { createResource, revalidateOnFocus, revalidateOnInterval, revalidateOnReconnect } from "@mmuscat/angular-swr"
 
 export const TODOS = createResource(Fetcher, {
    features: [
-      revalidateOnFocus(), 
-      revalidateOnReconnect()
+      revalidateOnFocus(),
+      revalidateOnReconnect(),
+      revalidateOnInterval(60_000)
    ]
 })
 ```
