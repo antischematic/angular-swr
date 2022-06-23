@@ -417,24 +417,23 @@ interface RevalidateIntervalOptions {
 
 @Injectable({ providedIn: "root" })
 export class RevalidateOnInterval implements ResourceFeature<RevalidateIntervalOptions> {
-   private intervals = new Map<Resource, number>()
+   private subscriptions = new Map<Resource, Subscription>()
 
    onConnect(resource: Resource, options: RevalidateIntervalOptions) {
       if (options.interval) {
-         resource.subscribe(() => {
+         const subscription = resource.subscribe(() => {
             if (resource.error || resource.complete) {
                this.onDisconnect(resource)
             }
          })
          const interval = setInterval(RevalidateOnInterval.revalidate, options.interval, resource)
-         this.intervals.set(resource, interval)
+         subscription.add(() => clearInterval(interval))
+         this.subscriptions.set(resource, subscription)
       }
    }
 
    onDisconnect(resource: Resource) {
-      const interval = this.intervals.get(resource)
-      clearInterval(interval)
-      this.intervals.delete(resource)
+      this.subscriptions.get(resource)?.unsubscribe()
    }
 
    static revalidate(resource: Resource) {
