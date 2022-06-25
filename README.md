@@ -22,13 +22,13 @@ export class Fetcher implements Fetchable<Todo[]> {
 Create a resource
 
 ```ts
-import { createResource, revalidateOnFocus, revalidateOnInterval, revalidateOnReconnect } from "@mmuscat/angular-swr"
+import { createResource, revalidateOnFocus, refreshInterval, revalidateOnReconnect } from "@mmuscat/angular-swr"
 
 export const TODOS = createResource(Fetcher, {
    features: [
       revalidateOnFocus,
       revalidateOnReconnect,
-      revalidateOnInterval(60_000)
+      refreshInterval(60_000)
    ]
 })
 ```
@@ -105,7 +105,7 @@ Revalidate a resource every time the current page receives window focus.
 
 Revalidate a resource every time the network connection comes back online.
 
-### `revalidateOnInterval`
+### `refreshInterval`
 
 Revalidate a resource periodically according to a timer.
 
