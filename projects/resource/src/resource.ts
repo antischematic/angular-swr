@@ -20,6 +20,7 @@ export interface ResourceOptions {
    immutable?: boolean
    timeoutMs?: number
    dedupeMs?: number
+   cache?: boolean
    serialize?: (...params: any[]) => string
    features?: ResourceFeatureWithOptions<any>[]
 }
@@ -33,7 +34,7 @@ export type FetchValue<T extends Fetchable> = FetchObservable<T> extends Observa
    : never
 
 export enum ResourceState {
-   EMPTY,
+   INITIAL,
    FETCH,
    SLOW,
    NEXT,
@@ -86,7 +87,6 @@ export class ResourceSubject<T extends Fetchable<any> = Fetchable> {
 
    constructor(
       private resource: Resource<T>,
-      private cache: Map<any, any>,
       private subject: Subject<any>,
       private changeDetectorRef?: ChangeDetectorRef | null,
    ) {}
@@ -95,7 +95,8 @@ export class ResourceSubject<T extends Fetchable<any> = Fetchable> {
 export const defaultOptions: ResourceOptions = Object.seal({
    dedupeMs: 2000,
    timeoutMs: 3000,
-   revalidateIfStale: true
+   revalidateIfStale: true,
+   cache: true
 })
 
 function createFetchObservable(source: Observable<any>) {
@@ -127,7 +128,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
    private readonly errorHandler: ErrorHandler
    private readonly observer: ResourceSubject<T>
    private readonly features: readonly [ResourceFeature, {}][]
-   private readonly cache: Map<string, { source: Observable<FetchValue<T>>, lastModified?: number }>
+   private readonly cache: Map<string, { source: Observable<FetchValue<T>>, lastModified?: number }> | null
    private connected: boolean
    private subscription: Subscription
    private cacheKey?: string
@@ -165,14 +166,13 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
    fetch(...params: FetchParameters<T>) {
       try {
          const cacheKey = this.getCacheKey(params)
-         const cache = this.cache.get(cacheKey)
+         const cache = this.cache?.get(cacheKey)
          const shouldDedupe = isWithinDedupeInterval(
             this.options.dedupeMs,
             cache?.lastModified,
          )
-         const shouldConnect = this.state !== ResourceState.EMPTY
+         const shouldConnect = this.state !== ResourceState.INITIAL
          const shouldSkipIfStale = !this.options.revalidateIfStale && !!cache
-         this.state = ResourceState.FETCH
          this.params = params
          this.cacheKey = cacheKey
          if (cache) {
@@ -182,7 +182,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
             const source = createFetchObservable(
                this.fetchable.fetch(...params),
             )
-            this.cache.set(cacheKey, { source, lastModified: Date.now() })
+            this.cache?.set(cacheKey, { source, lastModified: Date.now() })
             this.source = source
          }
          if (shouldConnect) {
@@ -205,7 +205,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
             this.errorHandler.handleError(this.thrownError)
             break
          }
-         case ResourceState.FETCH:
+         case ResourceState.INITIAL:
             this.connect()
             break
       }
@@ -215,6 +215,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
    connect() {
       if (!this.connected) {
          const { timeoutMs } = this.options
+         this.state = ResourceState.FETCH
          this.connected = true
          this.thrownError = undefined
          this.pending = true
@@ -248,9 +249,9 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
 
    invalidate(all: boolean = false) {
       if (all) {
-         this.cache.clear()
+         this.cache?.clear()
       } else if (this.cacheKey) {
-         this.cache.delete(this.cacheKey)
+         this.cache?.delete(this.cacheKey)
       }
       return this
    }
@@ -283,16 +284,15 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
       options: ResourceOptions,
    ) {
       this.options = { ...defaultOptions, ...options }
-      this.cache = inject(CacheRegistry).get(new.target)
+      this.cache = this.options.cache ? inject(CacheRegistry).get(new.target) : null
       this.observer = new ResourceSubject<T>(
          this,
-         this.cache,
          new Subject(),
          inject(ChangeDetectorRef, InjectFlags.Self | InjectFlags.Optional),
       )
       this.errorHandler = inject(ErrorHandler)
       this.source = EMPTY
-      this.state = ResourceState.EMPTY
+      this.state = ResourceState.INITIAL
       this.subscription = Subscription.EMPTY
       this.connected = false
       this.pending = false

@@ -3,13 +3,16 @@ import {
    createResource,
    defaultOptions,
    Fetchable,
+   refreshInterval,
    Resource,
-   ResourceState, revalidateOnFocus, refreshInterval, revalidateOnReconnect,
+   ResourceState,
+   revalidateOnFocus,
+   revalidateOnReconnect,
 } from "./resource"
 import { delay, EMPTY, interval, Observable, of, take, throwError } from "rxjs"
-import { ChangeDetectorRef, Component, Injectable, Type } from "@angular/core"
-import createSpy = jasmine.createSpy
+import { ChangeDetectorRef, Injectable, Type } from "@angular/core"
 import { DOCUMENT } from "@angular/common"
+import createSpy = jasmine.createSpy
 
 @Injectable({ providedIn: "root" })
 export class MockFetch {
@@ -42,9 +45,7 @@ const TEST = createResource(MockFetch, {
    providedIn: "root",
    timeoutMs: defaultOptions.timeoutMs,
    dedupeMs: defaultOptions.dedupeMs,
-   features: [
-      revalidateOnFocus
-   ]
+   features: [revalidateOnFocus],
 })
 const syncValue = of(1337)
 const delayedValue = of(1337).pipe(delay(500))
@@ -132,11 +133,15 @@ describe("Resource", () => {
    }))
 
    it("should revalidate on mount", fakeAsync(() => {
-      const FRESH = createResource(MockFetch, { revalidateIfStale: true, dedupeMs: 0, providedIn: "root" })
+      const FRESH = createResource(MockFetch, {
+         revalidateIfStale: true,
+         dedupeMs: 0,
+         providedIn: "root",
+      })
       // noinspection DuplicatedCode
       class STALE extends Resource {}
       TestBed.configureTestingModule({
-         providers: [{ provide: STALE, useClass: FRESH }]
+         providers: [{ provide: STALE, useClass: FRESH }],
       })
       const source = spyOnObservable(syncValue)
       mockFetch(MockFetch).and.returnValue(source)
@@ -156,9 +161,10 @@ describe("Resource", () => {
    }))
 
    describe("states", () => {
-      it("should be empty", () => {
+      it("should be initial", () => {
          const resource = TestBed.inject(TEST)
-         expect(resource.state).toBe(ResourceState.EMPTY)
+         resource.fetch()
+         expect(resource.state).toBe(ResourceState.INITIAL)
          expect(resource.pending).toBeFalse()
          expect(resource.slow).toBeFalse()
          expect(resource.complete).toBeFalse()
@@ -166,10 +172,12 @@ describe("Resource", () => {
       })
 
       it("should be fetch", () => {
+         mockFetch(MockFetch).and.returnValue(threeValues)
          const resource = TestBed.inject(TEST)
          resource.fetch()
+         resource.read()
          expect(resource.state).toBe(ResourceState.FETCH)
-         expect(resource.pending).toBeFalse()
+         expect(resource.pending).toBeTrue()
          expect(resource.slow).toBeFalse()
          expect(resource.complete).toBeFalse()
          expect(resource.error).toBeFalse()
@@ -253,7 +261,10 @@ describe("Resource", () => {
 
    describe("options", () => {
       it("should not revalidate within dedupe interval when cached", fakeAsync(() => {
-         const DEDUPE = createResource(MockFetch, { dedupeMs: defaultOptions.dedupeMs, providedIn: "root" })
+         const DEDUPE = createResource(MockFetch, {
+            dedupeMs: defaultOptions.dedupeMs,
+            providedIn: "root",
+         })
          const source = spyOnObservable(syncValue)
          const resource = TestBed.inject(DEDUPE)
          mockFetch(MockFetch).and.returnValue(source)
@@ -276,7 +287,10 @@ describe("Resource", () => {
       }))
 
       it("should always revalidate when dedupe is disabled", () => {
-         const NO_DEDUPE = createResource(MockFetch, { dedupeMs: 0, providedIn: "root" })
+         const NO_DEDUPE = createResource(MockFetch, {
+            dedupeMs: 0,
+            providedIn: "root",
+         })
          const source = spyOnObservable(syncValue)
          const resource = TestBed.inject(NO_DEDUPE)
          mockFetch(MockFetch).and.returnValue(source)
@@ -290,7 +304,11 @@ describe("Resource", () => {
       })
 
       it("should never revalidate when cached", () => {
-         const IMMUTABLE = createResource(MockFetch, { immutable: true, dedupeMs: 0, providedIn: "root" })
+         const IMMUTABLE = createResource(MockFetch, {
+            immutable: true,
+            dedupeMs: 0,
+            providedIn: "root",
+         })
          const source = spyOnObservable(syncValue)
          const resource = TestBed.inject(IMMUTABLE)
          mockFetch(MockFetch).and.returnValue(source)
@@ -304,7 +322,10 @@ describe("Resource", () => {
       })
 
       it("should use a custom param serializer", () => {
-         const SERIALIZE = createResource(MockFetch, { serialize: (params) => params + "1337", providedIn: "root" })
+         const SERIALIZE = createResource(MockFetch, {
+            serialize: (params) => params + "1337",
+            providedIn: "root",
+         })
          const resource = TestBed.inject(SERIALIZE)
 
          expect(resource.getCacheKey("BOGUS")).toBe("BOGUS1337")
@@ -316,15 +337,21 @@ describe("Resource", () => {
       })
 
       it("should provide token in root injector", () => {
-         const PROVIDED_IN_ROOT = createResource(MockFetch, { providedIn: "root" })
+         const PROVIDED_IN_ROOT = createResource(MockFetch, {
+            providedIn: "root",
+         })
          expect(() => TestBed.inject(PROVIDED_IN_ROOT)).not.toThrow()
       })
 
       it("should not revalidate on mount", () => {
-         const FRESH = createResource(MockFetch, { revalidateIfStale: false , dedupeMs: 0, providedIn: "root" })
+         const FRESH = createResource(MockFetch, {
+            revalidateIfStale: false,
+            dedupeMs: 0,
+            providedIn: "root",
+         })
          class STALE extends Resource {}
          TestBed.configureTestingModule({
-            providers: [{ provide: STALE, useClass: FRESH }]
+            providers: [{ provide: STALE, useClass: FRESH }],
          })
          const source = spyOnObservable(syncValue)
          mockFetch(MockFetch).and.returnValue(source)
@@ -342,11 +369,29 @@ describe("Resource", () => {
 
          expect(source.subscribe).toHaveBeenCalledTimes(1)
       })
+
+      it("should never cache", () => {
+         const NO_CACHE = createResource(MockFetch, { cache: false, providedIn: "root" })
+         const source = spyOnObservable(syncValue)
+         mockFetch(MockFetch).and.returnValue(source)
+         const noCache = TestBed.inject(NO_CACHE)
+
+         noCache.fetch()
+         noCache.read()
+         noCache.fetch()
+         noCache.fetch()
+
+         expect(source.subscribe).toHaveBeenCalledTimes(3)
+      })
    })
 
    describe("features", () => {
       it("should revalidate on window focus", () => {
-         const REVALIDATE = createResource(MockFetch, { features: [revalidateOnFocus], dedupeMs: 0, providedIn: "root" })
+         const REVALIDATE = createResource(MockFetch, {
+            features: [revalidateOnFocus],
+            dedupeMs: 0,
+            providedIn: "root",
+         })
          const source = spyOnObservable(syncValue)
          const resource = TestBed.inject(REVALIDATE)
          const document = TestBed.inject(DOCUMENT)
@@ -363,7 +408,11 @@ describe("Resource", () => {
       })
 
       it("should revalidate on reconnect", () => {
-         const RECONNECT = createResource(MockFetch, { features: [revalidateOnReconnect], dedupeMs: 0, providedIn: "root" })
+         const RECONNECT = createResource(MockFetch, {
+            features: [revalidateOnReconnect],
+            dedupeMs: 0,
+            providedIn: "root",
+         })
          const source = spyOnObservable(syncValue)
          const resource = TestBed.inject(RECONNECT)
          const document = TestBed.inject(DOCUMENT)
@@ -380,7 +429,12 @@ describe("Resource", () => {
       })
 
       it("should revalidate on interval", fakeAsync(() => {
-         const INTERVAL = createResource(MockFetch, { features: [refreshInterval(60000)], dedupeMs: 0, timeoutMs: 0, providedIn: "root" })
+         const INTERVAL = createResource(MockFetch, {
+            features: [refreshInterval(60000)],
+            dedupeMs: 0,
+            timeoutMs: 0,
+            providedIn: "root",
+         })
          const source = spyOnObservable(syncValue)
          mockFetch(MockFetch).and.returnValue(source)
          const resource = TestBed.inject(INTERVAL)
