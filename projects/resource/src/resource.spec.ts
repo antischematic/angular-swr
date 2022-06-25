@@ -1,453 +1,374 @@
 import { fakeAsync, TestBed, tick } from "@angular/core/testing"
 import {
    createResource,
+   defaultOptions,
    Fetchable,
    Resource,
-   ResourceOptions,
-   ResourceState, RevalidateIfStale, revalidateOnFocus,
-   RevalidateOnFocus, revalidateOnInterval, revalidateOnReconnect,
-   RevalidateOnReconnect,
+   ResourceState, revalidateOnFocus, refreshInterval, revalidateOnReconnect,
 } from "./resource"
-import { EMPTY, mapTo, Observable, switchMap, throwError, timer } from "rxjs"
-import {
-   ChangeDetectionStrategy,
-   ChangeDetectorRef,
-   Component,
-   DoCheck,
-   ErrorHandler,
-   inject,
-   Injectable,
-   Type,
-} from "@angular/core"
+import { delay, EMPTY, interval, Observable, of, take, throwError } from "rxjs"
+import { ChangeDetectorRef, Component, Injectable, Type } from "@angular/core"
 import createSpy = jasmine.createSpy
 import { DOCUMENT } from "@angular/common"
 
 @Injectable({ providedIn: "root" })
-class FetchTest implements Fetchable {
-   fetch(arg1: number, arg2: number, arg3: number) {
-      return timer(500).pipe(mapTo([arg1, arg2, arg3]))
+export class MockFetch {
+   fetch(..._: any[]): Observable<any> {
+      return EMPTY
    }
 }
 
-@Injectable({ providedIn: "root" })
-class FetchTestWithError implements Fetchable {
-   fetch(arg1: number, arg2: number, arg3: number) {
-      return timer(500).pipe(
-         switchMap(() => throwError(() => new Error("Subscribe error"))),
-      )
-   }
+function mockFetch(fetchable: Type<Fetchable>) {
+   return spyOn(TestBed.inject(fetchable), "fetch")
 }
 
-const TEST = createResource(FetchTest)
-const TEST_WITH_ERROR = createResource(FetchTestWithError)
-const TEST_ROOT = createResource(FetchTest, { providedIn: "root" })
-const TEST_NOT_PROVIDED = createResource(FetchTest)
-const TEST_IMMUTABLE = createResource(FetchTest, {
-   immutable: true,
-   features: [
-      revalidateOnFocus(),
-      revalidateOnReconnect(),
-      revalidateOnInterval(1000),
-   ],
-})
-
-function createTestResource<T extends Fetchable>(
-   fetchable: Type<T>,
-   options?: ResourceOptions,
-): Resource<T> {
-   const resource = createResource(fetchable, options)
-   TestBed.configureTestingModule({
-      providers: [resource],
+function configureTest() {
+   return TestBed.configureTestingModule({
+      providers: [
+         {
+            provide: ChangeDetectorRef,
+            useValue: { markForCheck: createSpy("markForCheck") },
+         },
+      ],
    })
-   return TestBed.inject(resource)
 }
 
-@Component({
-   template: `
-      <div *ngFor="let value of values">
-         {{ value }}
-      </div>
-   `,
-   providers: [TEST],
-   changeDetection: ChangeDetectionStrategy.OnPush,
+function spyOnObservable<T extends Observable<any>>(source: T) {
+   spyOn(source as Observable<any>, "subscribe").and.callThrough()
+   return source
+}
+
+const TEST = createResource(MockFetch, {
+   providedIn: "root",
+   timeoutMs: defaultOptions.timeoutMs,
+   dedupeMs: defaultOptions.dedupeMs,
+   features: [
+      revalidateOnFocus
+   ]
 })
-export class TestComponent implements DoCheck {
-   resource = inject(TEST).fetch(1, 2, 3)
-   values?: number[]
-
-   ngDoCheck() {
-      this.values = this.resource.read()
-   }
-}
-
-@Component({
-   template: `
-      <div *ngFor="let value of values">
-         {{ value }}
-      </div>
-   `,
-   providers: [TEST_IMMUTABLE],
-   changeDetection: ChangeDetectionStrategy.OnPush,
-})
-export class TestImmutableComponent implements DoCheck {
-   resource = inject(TEST_IMMUTABLE).fetch(1, 2, 3)
-   values?: number[]
-
-   ngDoCheck() {
-      this.values = this.resource.read()
-   }
-}
-
-class MockErrorHandler implements ErrorHandler {
-   handleError = jasmine.createSpy("handleError")
-}
+const syncValue = of(1337)
+const delayedValue = of(1337).pipe(delay(500))
+const threeValues = interval(500).pipe(take(3))
+const slowValue = of(1337).pipe(delay(5000))
 
 describe("Resource", () => {
-   beforeEach(() => {
-      TestBed.configureTestingModule({
-         providers: [
-            TEST,
-            TEST_WITH_ERROR,
-            {
-               provide: ErrorHandler,
-               useClass: MockErrorHandler,
-            },
-            {
-               provide: ChangeDetectorRef,
-               useValue: {
-                  markForCheck: jasmine.createSpy("markForCheck"),
-               },
-            },
-         ],
-      })
-   })
+   beforeEach(configureTest)
 
    it("should create", () => {
-      const resource = TestBed.inject(TEST)
-      expect(resource).toBeInstanceOf(TEST)
+      expect(TestBed.inject(TEST)).toBeTruthy()
    })
 
-   it("should fetch resource", () => {
+   it("should not immediately subscribe", () => {
+      const source = spyOnObservable(delayedValue)
       const resource = TestBed.inject(TEST)
-      const fetchTest = TestBed.inject(FetchTest)
 
-      spyOn(fetchTest, "fetch").and.returnValue(EMPTY)
-      resource.fetch(1, 2, 3)
+      mockFetch(MockFetch).and.returnValue(source)
+      resource.fetch()
 
-      expect(fetchTest.fetch).toHaveBeenCalledTimes(1)
+      expect(source.subscribe).not.toHaveBeenCalled()
    })
 
-   it("should cast to an observable", fakeAsync(() => {
+   it("should subscribe on first read", fakeAsync(() => {
+      const source = spyOnObservable(delayedValue)
       const resource = TestBed.inject(TEST)
-      resource.fetch(1, 2, 3)
-      const spy = jasmine.createSpy()
 
-      resource.asObservable().subscribe(spy)
+      mockFetch(MockFetch).and.returnValue(source)
+      resource.fetch(1)
+      resource.fetch(2)
       resource.read()
 
       tick(500)
-      expect(spy).toHaveBeenCalledWith(resource)
+
+      expect(source.subscribe).toHaveBeenCalledTimes(1)
+      expect(resource.value).toBe(1337)
    }))
 
-   describe("read", () => {
-      it("should subscribe to resource", () => {
+   it("should subscribe on first value access", fakeAsync(() => {
+      const source = spyOnObservable(delayedValue)
+      const resource = TestBed.inject(TEST)
+      mockFetch(MockFetch).and.returnValue(source)
+
+      resource.fetch(1)
+      resource.fetch(2)
+      expect(resource.value).toBeUndefined()
+      tick(500)
+
+      expect(source.subscribe).toHaveBeenCalledTimes(1)
+      expect(resource.value).toBe(1337)
+   }))
+
+   it("should subscribe on subsequent fetch", fakeAsync(() => {
+      const source = spyOnObservable(delayedValue)
+      const resource = TestBed.inject(TEST)
+      mockFetch(MockFetch).and.returnValue(source)
+
+      resource.fetch(1).read()
+      resource.fetch(2)
+      tick(500)
+
+      expect(source.subscribe).toHaveBeenCalledTimes(2)
+      expect(resource.value).toBe(1337)
+   }))
+
+   it("should trigger change detection", fakeAsync(() => {
+      const source = spyOnObservable(threeValues)
+      const resource = TestBed.inject(TEST)
+      const changeDetector = TestBed.inject(ChangeDetectorRef)
+      mockFetch(MockFetch).and.returnValue(source)
+
+      resource.fetch()
+      resource.read()
+      tick(500)
+
+      expect(changeDetector.markForCheck).toHaveBeenCalledTimes(1)
+
+      tick(500)
+
+      expect(changeDetector.markForCheck).toHaveBeenCalledTimes(2)
+
+      tick(500)
+
+      expect(changeDetector.markForCheck).toHaveBeenCalledTimes(4)
+   }))
+
+   describe("states", () => {
+      it("should be empty", () => {
          const resource = TestBed.inject(TEST)
-
-         resource.fetch(1, 2, 3)
-
-         spyOn(resource.source, "subscribe").and.callThrough()
-         resource.read()
-
-         expect(resource.source.subscribe).toHaveBeenCalledTimes(1)
-      })
-
-      it("should emit values", fakeAsync(() => {
-         let result
-         const resource = TestBed.inject(TEST)
-         resource.fetch(1, 2, 3)
-
-         result = resource.read()
-         expect(result).toBeUndefined()
-
-         tick(500)
-         result = resource.read()
-
-         expect(result).toEqual([1, 2, 3])
-      }))
-
-      it("should not subscribe until the first read", fakeAsync(() => {
-         const resource = TestBed.inject(TEST)
-
-         resource.fetch(1, 2, 3)
-
-         spyOn(resource.source, "subscribe").and.callThrough()
-         tick(500)
-
-         expect(resource.source.subscribe).not.toHaveBeenCalled()
-
-         resource.read()
-         tick(500)
-         resource.read()
-
-         expect(resource.source.subscribe).toHaveBeenCalledTimes(1)
-      }))
-
-      it("should immediately switch to new subscription on subsequent fetch after first read", fakeAsync(() => {
-         const resource = TestBed.inject(TEST)
-         const test = resource.fetch(1, 2, 3)
-
-         test.read()
-         test.fetch(4, 5, 6)
-         tick(500)
-
-         expect(test.value).toEqual([4, 5, 6])
-      }))
-   })
-
-   describe("errors", () => {
-      it("should catch subscribe error", fakeAsync(() => {
-         const resource = TestBed.inject(TEST_WITH_ERROR)
-         const errorHandler = TestBed.inject(ErrorHandler)
-         resource.fetch(1, 2, 3)
-
-         resource.read()
-         tick(500)
-         resource.read()
-
-         expect(resource.state).toBe(ResourceState.ERROR)
-         expect(errorHandler.handleError).toHaveBeenCalledWith(
-            new Error("Subscribe error"),
-         )
-      }))
-
-      it("should catch fetch error", () => {
-         const resource = TestBed.inject(TEST_WITH_ERROR)
-         const fetchTestWithError = TestBed.inject(FetchTestWithError)
-         const errorHandler = TestBed.inject(ErrorHandler)
-
-         spyOn(fetchTestWithError, "fetch").and.callFake(() => {
-            throw new Error("Could not fetch resource")
-         })
-         resource.fetch(1, 2, 3)
-         resource.read()
-
-         expect(resource.state).toBe(ResourceState.ERROR)
-         expect(errorHandler.handleError).toHaveBeenCalledWith(
-            new Error("Could not fetch resource"),
-         )
-      })
-   })
-
-   describe("status", () => {
-      it("should get initial status", () => {
-         const resource = TestBed.inject(TEST)
-
+         expect(resource.state).toBe(ResourceState.EMPTY)
          expect(resource.pending).toBeFalse()
-         expect(resource.error).toBeFalse()
+         expect(resource.slow).toBeFalse()
          expect(resource.complete).toBeFalse()
+         expect(resource.error).toBeFalse()
       })
 
-      it("should be pending after subscribe until a value is received", fakeAsync(() => {
-         const resource = TestBed.inject(TEST).fetch(1, 2, 3)
-
+      it("should be fetch", () => {
+         const resource = TestBed.inject(TEST)
+         resource.fetch()
+         expect(resource.state).toBe(ResourceState.FETCH)
          expect(resource.pending).toBeFalse()
+         expect(resource.slow).toBeFalse()
+         expect(resource.complete).toBeFalse()
+         expect(resource.error).toBeFalse()
+      })
 
+      it("should be next", fakeAsync(() => {
+         mockFetch(MockFetch).and.returnValue(threeValues)
+         const resource = TestBed.inject(TEST)
+         resource.fetch()
          resource.read()
-         expect(resource.pending).toBeTrue()
 
+         expect(resource.pending).toBeTrue()
+         expect(resource.slow).toBeFalse()
+         expect(resource.complete).toBeFalse()
+         expect(resource.error).toBeFalse()
          tick(500)
 
+         expect(resource.state).toBe(ResourceState.NEXT)
          expect(resource.pending).toBeFalse()
+         expect(resource.slow).toBeFalse()
+         expect(resource.complete).toBeFalse()
+         expect(resource.error).toBeFalse()
+         tick(1000)
       }))
 
-      it("should be pending after subscribe until an error occurs", fakeAsync(() => {
-         const resource = TestBed.inject(TEST_WITH_ERROR).fetch(1, 2, 3)
+      it("should be complete", () => {
+         mockFetch(MockFetch).and.returnValue(EMPTY)
+         const resource = TestBed.inject(TEST)
 
-         expect(resource.pending).toBeFalse()
-
+         resource.fetch()
          resource.read()
-         expect(resource.pending).toBeTrue()
 
-         tick(500)
-
+         expect(resource.state).toBe(ResourceState.COMPLETE)
          expect(resource.pending).toBeFalse()
-         expect(resource.error).toBeTrue()
-      }))
-
-      it("should be pending after subscribe until the resource completes", fakeAsync(() => {
-         const resource = TestBed.inject(TEST).fetch(1, 2, 3)
-         const fetchTest = TestBed.inject(FetchTest)
-
-         spyOn(fetchTest, "fetch").and.returnValue(timer(500) as any)
-         expect(resource.pending).toBeFalse()
-
-         resource.fetch(1, 2, 3)
-         resource.read()
-         expect(resource.pending).toBeTrue()
-
-         tick(500)
-
-         expect(resource.pending).toBeFalse()
+         expect(resource.slow).toBeFalse()
          expect(resource.complete).toBeTrue()
+         expect(resource.error).toBeFalse()
+      })
+
+      it("should be error", () => {
+         mockFetch(MockFetch).and.returnValue(
+            throwError(() => new Error("BOGUS")),
+         )
+         const resource = TestBed.inject(TEST)
+
+         resource.fetch()
+         resource.read()
+
+         expect(resource.state).toBe(ResourceState.ERROR)
+         expect(resource.pending).toBeFalse()
+         expect(resource.slow).toBeFalse()
+         expect(resource.complete).toBeFalse()
+         expect(resource.error).toBeTrue()
+      })
+
+      it("should be slow", fakeAsync(() => {
+         mockFetch(MockFetch).and.returnValue(slowValue)
+         const resource = TestBed.inject(TEST)
+
+         resource.fetch()
+         resource.read()
+         tick(3000)
+
+         expect(resource.pending).toBeTrue()
+         expect(resource.slow).toBeTrue()
+         expect(resource.complete).toBeFalse()
+         expect(resource.error).toBeFalse()
+         expect(resource.state).toBe(ResourceState.SLOW)
+
+         tick(2000)
+
+         expect(resource.slow).toBeFalse()
+         expect(resource.state).toBe(ResourceState.COMPLETE)
       }))
+
+      it("should work without change detector ref", () => {
+         TestBed.resetTestingModule()
+         expect(() => TestBed.inject(TEST)).not.toThrow()
+      })
    })
 
    describe("options", () => {
-      it("should provide in root", () => {
-         expect(() => TestBed.inject(TEST_ROOT)).not.toThrow()
-      })
+      it("should not revalidate within dedupe interval when cached", fakeAsync(() => {
+         const DEDUPE = createResource(MockFetch, { dedupeMs: defaultOptions.dedupeMs, providedIn: "root" })
+         const source = spyOnObservable(syncValue)
+         const resource = TestBed.inject(DEDUPE)
+         mockFetch(MockFetch).and.returnValue(source)
 
-      it("should override provider name", () => {
-         let error: any
-         try {
-            TestBed.inject(TEST_NOT_PROVIDED)
-         } catch (e) {
-            error = e
-         }
-         expect(error?.message).toContain(
-            "No provider for Resource<FetchTest>!",
-         )
-      })
+         resource.fetch().read()
+         resource.fetch()
 
-      it("should revalidate on focus", fakeAsync(() => {
-         const resource = createTestResource(FetchTest, {
-            features: [revalidateOnFocus()],
-         })
-         const fetch = spyOn(
-            TestBed.inject(FetchTest),
-            "fetch",
-         ).and.callThrough()
-         const document = TestBed.inject(DOCUMENT)
+         expect(source.subscribe).toHaveBeenCalledTimes(1)
 
-         resource.fetch(1, 2, 3).read()
+         resource.fetch(1)
+         resource.fetch(1)
+         resource.fetch()
 
-         // default dedupe interval 2000ms
-         tick(2000)
+         expect(source.subscribe).toHaveBeenCalledTimes(2)
 
-         document.dispatchEvent(new Event("visibilitychange"))
-         // request timer
-         tick(500)
+         tick(defaultOptions.dedupeMs)
+         resource.fetch()
 
-         expect(fetch).toHaveBeenCalledTimes(2)
+         expect(source.subscribe).toHaveBeenCalledTimes(3)
       }))
 
-      it("should revalidate on reconnect", fakeAsync(() => {
-         const resource = createTestResource(FetchTest, {
-            features: [revalidateOnReconnect()],
+      it("should always revalidate when dedupe is disabled", () => {
+         const NO_DEDUPE = createResource(MockFetch, { dedupeMs: 0, providedIn: "root" })
+         const source = spyOnObservable(syncValue)
+         const resource = TestBed.inject(NO_DEDUPE)
+         mockFetch(MockFetch).and.returnValue(source)
+
+         resource.fetch()
+         resource.read()
+         resource.revalidate()
+         resource.revalidate()
+
+         expect(source.subscribe).toHaveBeenCalledTimes(3)
+      })
+
+      it("should never revalidate when cached", () => {
+         const IMMUTABLE = createResource(MockFetch, { immutable: true, dedupeMs: 0, providedIn: "root" })
+         const source = spyOnObservable(syncValue)
+         const resource = TestBed.inject(IMMUTABLE)
+         mockFetch(MockFetch).and.returnValue(source)
+
+         resource.fetch()
+         resource.read()
+         resource.revalidate()
+         resource.revalidate()
+
+         expect(source.subscribe).toHaveBeenCalledTimes(1)
+      })
+
+      it("should use a custom param serializer", () => {
+         const SERIALIZE = createResource(MockFetch, { serialize: (params) => params + "1337", providedIn: "root" })
+         const resource = TestBed.inject(SERIALIZE)
+
+         expect(resource.getCacheKey("BOGUS")).toBe("BOGUS1337")
+      })
+
+      it("should not provide token by default", () => {
+         const NOT_PROVIDED = createResource(MockFetch)
+         expect(() => TestBed.inject(NOT_PROVIDED)).toThrow()
+      })
+
+      it("should provide token in root injector", () => {
+         const PROVIDED_IN_ROOT = createResource(MockFetch, { providedIn: "root" })
+         expect(() => TestBed.inject(PROVIDED_IN_ROOT)).not.toThrow()
+      })
+
+      it("should not revalidate on mount", () => {
+         const FRESH = createResource(MockFetch, { revalidateIfStale: false , dedupeMs: 0, providedIn: "root" })
+         TestBed.configureTestingModule({
+            providers: [{ provide: "STALE", useClass: FRESH }]
          })
-         const fetch = spyOn(
-            TestBed.inject(FetchTest),
-            "fetch",
-         ).and.callThrough()
-         const document = TestBed.inject(DOCUMENT)
+         const source = spyOnObservable(syncValue)
+         mockFetch(MockFetch).and.returnValue(source)
+         const fresh = TestBed.inject(FRESH)
 
-         resource.fetch(1, 2, 3).read()
-         // default dedupe interval 2000ms
-         tick(2000)
+         fresh.fetch()
+         fresh.read()
 
-         document.defaultView?.dispatchEvent(new Event("online"))
-         // request timer
-         tick(500)
+         expect(source.subscribe).toHaveBeenCalledTimes(1)
 
-         expect(fetch).toHaveBeenCalledTimes(2)
-      }))
+         const stale = TestBed.inject(FRESH)
+
+         stale.fetch()
+
+         expect(source.subscribe).toHaveBeenCalledTimes(1)
+      })
    })
 
-   describe("integration", () => {
-      beforeEach(() => {
-         TestBed.configureTestingModule({
-            declarations: [TestComponent, TestImmutableComponent],
-         })
-      })
-
-      it("should trigger change detection", fakeAsync(() => {
-         const fixture = TestBed.createComponent(TestComponent)
-         spyOn(fixture.componentInstance.resource, "read").and.callThrough()
-
-         expect(fixture.componentInstance.resource.read).not.toHaveBeenCalled()
-         expect(fixture.componentInstance.values).toBeUndefined()
-
-         fixture.autoDetectChanges()
-
-         expect(fixture.componentInstance.resource.read).toHaveBeenCalledTimes(
-            2,
-         )
-         expect(fixture.componentInstance.values).toBeUndefined()
-
-         tick(500)
-
-         expect(fixture.componentInstance.resource.read).toHaveBeenCalledTimes(
-            3,
-         )
-         expect(fixture.componentInstance.values).toEqual([1, 2, 3])
-         expect(fixture.debugElement.nativeElement.textContent).toEqual(
-            " 1  2  3 ",
-         )
-      }))
-
-      it("should dispose resources", () => {
-         const fixture = TestBed.createComponent(TestComponent)
-         const spy = createSpy()
-
-         fixture.componentInstance.resource.source = new Observable<any>(
-            () => spy,
-         )
-
-         fixture.autoDetectChanges()
-
-         expect(spy).not.toHaveBeenCalled()
-
-         fixture.destroy()
-
-         expect(spy).toHaveBeenCalledTimes(1)
-      })
-
-      it("should revalidate if stale", fakeAsync(() => {
-         const fetch = spyOn(
-            TestBed.inject(FetchTest),
-            "fetch",
-         ).and.callThrough()
-         const fixture = TestBed.createComponent(TestComponent)
-
-         fixture.autoDetectChanges()
-         tick(500)
-
-         expect(fetch).toHaveBeenCalledTimes(1)
-
-         // default dedupe interval 2000ms - 500ms
-         tick(1500)
-
-         const fixture2 = TestBed.createComponent(TestComponent)
-
-         fixture2.autoDetectChanges()
-         tick(500)
-
-         expect(fetch).toHaveBeenCalledTimes(2)
-      }))
-
-      it("should not revalidate if immutable", fakeAsync(() => {
-         const fetch = spyOn(
-            TestBed.inject(FetchTest),
-            "fetch",
-         ).and.callThrough()
-         const fixture = TestBed.createComponent(TestImmutableComponent)
+   describe("features", () => {
+      it("should revalidate on window focus", () => {
+         const REVALIDATE = createResource(MockFetch, { features: [revalidateOnFocus], dedupeMs: 0, providedIn: "root" })
+         const source = spyOnObservable(syncValue)
+         const resource = TestBed.inject(REVALIDATE)
          const document = TestBed.inject(DOCUMENT)
+         mockFetch(MockFetch).and.returnValue(source)
 
-         fixture.autoDetectChanges()
-         tick(500)
+         resource.fetch()
+         resource.read()
 
-         expect(fetch).toHaveBeenCalledTimes(1)
+         expect(source.subscribe).toHaveBeenCalledTimes(1)
 
-         const fixture2 = TestBed.createComponent(TestImmutableComponent)
-
-         fixture2.autoDetectChanges()
-         tick(500)
          document.dispatchEvent(new Event("visibilitychange"))
-         tick(500)
-         document.defaultView?.dispatchEvent(new Event("online"))
-         tick(500)
 
-         expect(fetch).toHaveBeenCalledTimes(1)
+         expect(source.subscribe).toHaveBeenCalledTimes(2)
+      })
+
+      it("should revalidate on reconnect", () => {
+         const RECONNECT = createResource(MockFetch, { features: [revalidateOnReconnect], dedupeMs: 0, providedIn: "root" })
+         const source = spyOnObservable(syncValue)
+         const resource = TestBed.inject(RECONNECT)
+         const document = TestBed.inject(DOCUMENT)
+         mockFetch(MockFetch).and.returnValue(source)
+
+         resource.fetch()
+         resource.read()
+
+         expect(source.subscribe).toHaveBeenCalledTimes(1)
+
+         document.defaultView?.dispatchEvent(new Event("online"))
+
+         expect(source.subscribe).toHaveBeenCalledTimes(2)
+      })
+
+      it("should revalidate on interval", fakeAsync(() => {
+         const INTERVAL = createResource(MockFetch, { features: [refreshInterval(60000)], dedupeMs: 0, timeoutMs: 0, providedIn: "root" })
+         const source = spyOnObservable(syncValue)
+         mockFetch(MockFetch).and.returnValue(source)
+         const resource = TestBed.inject(INTERVAL)
+
+         resource.fetch()
+         resource.read()
+
+         expect(source.subscribe).toHaveBeenCalledTimes(1)
+
+         tick(60000)
+
+         expect(source.subscribe).toHaveBeenCalledTimes(2)
+
+         TestBed.resetTestingModule()
       }))
    })
 })

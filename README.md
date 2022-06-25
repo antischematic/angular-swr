@@ -84,7 +84,7 @@ export interface ResourceOptions {
 |------------|----------------|-----------------------------------------------------------------------------------------------------------|
 | providedIn | null           | Configure which module the resource is provided in                                                        |
 | immutable  | false          | Prevent refetching a resource that is already cached with the given params                                |
-| timeoutMs  | void           | How long a resource should wait after fetching without receiving a response before it is marked as `slow` |
+| timeoutMs  | 3000           | How long a resource should wait after fetching without receiving a response before it is marked as `slow` |
 | dedupeMs   | 2000           | How long a resource should wait before allowing a duplicate fetch with the same params                    |
 | serialize  | JSON.stringify | Serializer used to stringify fetch parameters                                                             |
 | features   | void           | A list of `ResourceFeatureWithOptions` that add additional behaviours to the resource                     |
