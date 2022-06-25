@@ -284,7 +284,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
       options: ResourceOptions,
    ) {
       this.options = { ...defaultOptions, ...options }
-      this.cache = this.options.cache ? inject(CacheRegistry).get(new.target) : null
+      this.cache = this.options.cache ? inject(CacheRegistry).get(fetchable) : null
       this.observer = new ResourceSubject<T>(
          this,
          new Subject(),
