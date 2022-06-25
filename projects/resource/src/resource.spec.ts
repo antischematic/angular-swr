@@ -160,6 +160,13 @@ describe("Resource", () => {
       expect(source.subscribe).toHaveBeenCalledTimes(2)
    }))
 
+   it("should complete subject when destroyed", () => {
+      const resource = TestBed.inject(TEST)
+      const subscription = resource.subscribe()
+      TestBed.resetTestingModule()
+      expect(subscription.closed).toBeTrue()
+   })
+
    describe("states", () => {
       it("should be initial", () => {
          const resource = TestBed.inject(TEST)

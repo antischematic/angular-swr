@@ -129,6 +129,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
    private readonly observer: ResourceSubject<T>
    private readonly features: readonly [ResourceFeature, {}][]
    private readonly cache: Map<string, { source: Observable<FetchValue<T>>, lastModified?: number }> | null
+   private readonly subject: Subject<any>
    private connected: boolean
    private subscription: Subscription
    private cacheKey?: string
@@ -260,12 +261,12 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
       return this.options.serialize?.(params) ?? JSON.stringify(params)
    }
 
-   asObservable() {
+   asObservable(): Observable<Resource<T>> {
       return this.observer.asObservable()
    }
 
    subscribe(observer?: PartialObserver<this>): Subscription
-   subscribe(observer?: (value: this) => void): Subscription
+   subscribe(observer?: (value: Resource<T>) => void): Subscription
    subscribe(
       observer?: ((value: Resource<T>) => void) & PartialObserver<this>,
    ) {
@@ -274,6 +275,7 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
 
    ngOnDestroy() {
       this.disconnect()
+      this.subject.complete()
       for (const [feature, options] of this.features) {
          feature.onDestroy?.(this, options)
       }
@@ -285,9 +287,10 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
    ) {
       this.options = { ...defaultOptions, ...options }
       this.cache = this.options.cache ? inject(CacheRegistry).get(fetchable) : null
+      this.subject = new Subject()
       this.observer = new ResourceSubject<T>(
          this,
-         new Subject(),
+         this.subject,
          inject(ChangeDetectorRef, InjectFlags.Self | InjectFlags.Optional),
       )
       this.errorHandler = inject(ErrorHandler)
