@@ -1,24 +1,164 @@
-# Resource
+# Angular SWR
 
-This library was generated with [Angular CLI](https://github.com/angular/angular-cli) version 14.0.0.
+Data fetching for Angular 14+
 
-## Code scaffolding
+## Usage
 
-Run `ng generate component component-name --project resource` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module --project resource`.
-> Note: Don't forget to add `--project resource` or else it will be added to the default project in your `angular.json` file. 
+Create a service that fetches data
 
-## Build
+```ts
+const endpoint = "https://jsonplaceholder.typicode.com/todos"
 
-Run `ng build resource` to build the project. The build artifacts will be stored in the `dist/` directory.
+@Injectable({ providedIn: "root" })
+export class Fetcher implements Fetchable<Todo[]> {
+   private http = inject(HttpClient)
+   
+   fetch(userId: string) {
+      return this.http.get(endpoint, { params: { userId }})
+   }
+}
+```
 
-## Publishing
+Create a resource
 
-After building your library with `ng build resource`, go to the dist folder `cd dist/resource` and run `npm publish`.
+```ts
+import { createResource, revalidateOnFocus, revalidateOnInterval, revalidateOnReconnect } from "@mmuscat/angular-swr"
 
-## Running unit tests
+export const TODOS = createResource(Fetcher, {
+   features: [
+      revalidateOnFocus,
+      revalidateOnReconnect,
+      revalidateOnInterval(60_000)
+   ]
+})
+```
 
-Run `ng test resource` to execute the unit tests via [Karma](https://karma-runner.github.io).
+Provide and use resource in component
 
-## Further help
+```ts
+import { TODOS } from "./resource"
 
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.io/cli) page.
+@Component({
+   selector: "app-todos",
+   templateUrl: "./todos.component.html",
+   providers: [TODOS],
+})
+export class TodosComponent {
+   protected todos = inject(TODOS)
+   
+   @Input()
+   userId: string
+   
+   ngOnChanges() {
+      this.todos.fetch(this.userId)
+   }
+}
+```
+
+Read values in template
+
+```html
+<!-- todos.component.html -->
+<div *ngIf="todos.error">
+   Something went wrong
+   <button (click)="todos.revalidate()">Retry</button>
+</div>
+<spinner *ngIf="todos.pending"></spinner>
+<todo *ngFor="let todo of todos.value" [value]="todo"></todo>
+```
+
+## Options
+
+```ts
+export interface ResourceOptions {
+   providedIn?: Type<any> | "root" | "platform" | "any" | null
+   immutable?: boolean
+   timeoutMs?: number
+   dedupeMs?: number
+   refetchIfStale?: boolean
+   serialize?: (...params: any[]) => string
+   features?: ResourceFeatureWithOptions<{}>[]
+}
+```
+
+| property          | default        | description                                                                                               |
+|-------------------|----------------|-----------------------------------------------------------------------------------------------------------|
+| providedIn        | null           | Configure which module the resource is provided in                                                        |
+| immutable         | false          | Prevent refetching a resource that is already cached with the given params                                |
+| timeoutMs         | 3000           | How long a resource should wait after fetching without receiving a response before it is marked as `slow` |
+| dedupeMs          | 2000           | How long a resource should wait before allowing a duplicate fetch with the same params                    |
+| revalidateIfStale | true           | Control whether a resource should revalidate when mounted if there is stale data                          |
+| serialize         | JSON.stringify | Serializer used to stringify fetch parameters                                                             |
+| features          | void           | A list of `ResourceFeatureWithOptions` that add additional behaviours to the resource                     |
+
+## Adding Features
+
+Resource behavior can be customised by adding features.
+
+### `revalidateOnFocus`
+
+Revalidate a resource every time the current page receives window focus.
+
+### `revalidateOnReconnect`
+
+Revalidate a resource every time the network connection comes back online.
+
+### `revalidateOnInterval`
+
+Revalidate a resource periodically according to a timer.
+
+### Writing Custom Features
+
+Create a class that implements the `ResourceFeature` interface.
+
+```ts
+interface ResourceFeature<T extends {}> {
+   onInit?(resource: Resource, options: T): void
+   onConnect?(resource: Resource, options: T): void
+   onDisconnect?(resource: Resource, options: T): void
+   onDestroy?(resource: Resource, options: T): void
+}
+```
+
+Example
+
+```ts
+import { createFeature, Fetchable, Resource, ResourceFeature } from "@mmuscat/angular-swr"
+
+interface LoggerOptions {
+   token?: Type<{ log: (resource: Resource) => void }>
+}
+
+@Injectable({ providedIn: "root" })
+export class Logger implements ResourceFeature<LoggerOptions> {
+   private injector = inject(INJECTOR)
+
+   onInit(resource: Resource<T>, { token }: LoggerOptions) {
+      const logger = this.injector.get(token, console)
+      resource.subscribe(() => {
+         logger.log(resource)
+      })
+   }
+}
+
+export function logger(token: Type<any>) {
+   return createFeature(Logger, { token })
+}
+```
+
+Usage
+
+```ts
+@Injectable({ providedIn: "root" })
+class MyLogger {
+   log(resource: Resource) {
+      // log implementation
+   }
+}
+
+const RESOURCE = createResource(Fetcher, {
+   features: [
+      logger(MyLogger)
+   ]
+})
+```

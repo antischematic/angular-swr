@@ -7,7 +7,8 @@ import {
    OnDestroy,
    Type,
 } from "@angular/core"
-import { EMPTY, Observable, PartialObserver, shareReplay, Subject, Subscription } from "rxjs"
+import { EMPTY, Observable, PartialObserver, Subject, Subscription } from "rxjs"
+import { shareReplay } from "rxjs/operators"
 import { DOCUMENT } from "@angular/common"
 
 export interface Fetchable<T = unknown> {

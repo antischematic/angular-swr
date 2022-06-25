@@ -9,7 +9,8 @@ import {
    revalidateOnFocus,
    revalidateOnReconnect,
 } from "./resource"
-import { delay, EMPTY, interval, Observable, of, take, throwError } from "rxjs"
+import { EMPTY, interval, Observable, of, throwError } from "rxjs"
+import { delay, take } from "rxjs/operators"
 import { ChangeDetectorRef, Injectable, Type } from "@angular/core"
 import { DOCUMENT } from "@angular/common"
 import createSpy = jasmine.createSpy

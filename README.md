@@ -75,6 +75,7 @@ export interface ResourceOptions {
    immutable?: boolean
    timeoutMs?: number
    dedupeMs?: number
+   cache?: boolean
    refetchIfStale?: boolean
    serialize?: (...params: any[]) => string
    features?: ResourceFeatureWithOptions<{}>[]
@@ -87,6 +88,7 @@ export interface ResourceOptions {
 | immutable         | false          | Prevent refetching a resource that is already cached with the given params                                |
 | timeoutMs         | 3000           | How long a resource should wait after fetching without receiving a response before it is marked as `slow` |
 | dedupeMs          | 2000           | How long a resource should wait before allowing a duplicate fetch with the same params                    |
+| cache             | true           | Disables caching when set to false, useful when fetch is used to send data                                |
 | revalidateIfStale | true           | Control whether a resource should revalidate when mounted if there is stale data                          |
 | serialize         | JSON.stringify | Serializer used to stringify fetch parameters                                                             |
 | features          | void           | A list of `ResourceFeatureWithOptions` that add additional behaviours to the resource                     |
