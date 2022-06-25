@@ -171,14 +171,14 @@ export abstract class Resource<T extends Fetchable<any> = Fetchable>
             cache?.lastModified,
          )
          const shouldConnect = this.state !== ResourceState.EMPTY
-         const skipInitialFetch = !this.options.revalidateIfStale && !!cache
+         const shouldSkipIfStale = !this.options.revalidateIfStale && !!cache
          this.state = ResourceState.FETCH
          this.params = params
          this.cacheKey = cacheKey
          if (cache) {
             this.source = cache.source
          }
-         if ((!this.options.immutable || !cache) && !shouldDedupe && !skipInitialFetch) {
+         if ((!this.options.immutable || !cache) && !shouldDedupe && !shouldSkipIfStale) {
             const source = createFetchObservable(
                this.fetchable.fetch(...params),
             )

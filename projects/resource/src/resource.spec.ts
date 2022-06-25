@@ -131,6 +131,30 @@ describe("Resource", () => {
       expect(changeDetector.markForCheck).toHaveBeenCalledTimes(4)
    }))
 
+   it("should revalidate on mount", fakeAsync(() => {
+      const FRESH = createResource(MockFetch, { revalidateIfStale: true, dedupeMs: 0, providedIn: "root" })
+      // noinspection DuplicatedCode
+      class STALE extends Resource {}
+      TestBed.configureTestingModule({
+         providers: [{ provide: STALE, useClass: FRESH }]
+      })
+      const source = spyOnObservable(syncValue)
+      mockFetch(MockFetch).and.returnValue(source)
+      const fresh = TestBed.inject(FRESH)
+
+      fresh.fetch()
+      fresh.read()
+
+      expect(source.subscribe).toHaveBeenCalledTimes(1)
+
+      const stale = TestBed.inject(STALE)
+
+      stale.fetch()
+      stale.read()
+
+      expect(source.subscribe).toHaveBeenCalledTimes(2)
+   }))
+
    describe("states", () => {
       it("should be empty", () => {
          const resource = TestBed.inject(TEST)
@@ -298,8 +322,9 @@ describe("Resource", () => {
 
       it("should not revalidate on mount", () => {
          const FRESH = createResource(MockFetch, { revalidateIfStale: false , dedupeMs: 0, providedIn: "root" })
+         class STALE extends Resource {}
          TestBed.configureTestingModule({
-            providers: [{ provide: "STALE", useClass: FRESH }]
+            providers: [{ provide: STALE, useClass: FRESH }]
          })
          const source = spyOnObservable(syncValue)
          mockFetch(MockFetch).and.returnValue(source)
@@ -310,9 +335,10 @@ describe("Resource", () => {
 
          expect(source.subscribe).toHaveBeenCalledTimes(1)
 
-         const stale = TestBed.inject(FRESH)
+         const stale = TestBed.inject(STALE)
 
          stale.fetch()
+         stale.read()
 
          expect(source.subscribe).toHaveBeenCalledTimes(1)
       })

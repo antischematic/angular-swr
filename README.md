@@ -26,8 +26,8 @@ import { createResource, revalidateOnFocus, revalidateOnInterval, revalidateOnRe
 
 export const TODOS = createResource(Fetcher, {
    features: [
-      revalidateOnFocus(),
-      revalidateOnReconnect(),
+      revalidateOnFocus,
+      revalidateOnReconnect,
       revalidateOnInterval(60_000)
    ]
 })
@@ -75,19 +75,21 @@ export interface ResourceOptions {
    immutable?: boolean
    timeoutMs?: number
    dedupeMs?: number
+   refetchIfStale?: boolean
    serialize?: (...params: any[]) => string
    features?: ResourceFeatureWithOptions<{}>[]
 }
 ```
 
-| property   | default        | description                                                                                               |
-|------------|----------------|-----------------------------------------------------------------------------------------------------------|
-| providedIn | null           | Configure which module the resource is provided in                                                        |
-| immutable  | false          | Prevent refetching a resource that is already cached with the given params                                |
-| timeoutMs  | 3000           | How long a resource should wait after fetching without receiving a response before it is marked as `slow` |
-| dedupeMs   | 2000           | How long a resource should wait before allowing a duplicate fetch with the same params                    |
-| serialize  | JSON.stringify | Serializer used to stringify fetch parameters                                                             |
-| features   | void           | A list of `ResourceFeatureWithOptions` that add additional behaviours to the resource                     |
+| property          | default        | description                                                                                               |
+|-------------------|----------------|-----------------------------------------------------------------------------------------------------------|
+| providedIn        | null           | Configure which module the resource is provided in                                                        |
+| immutable         | false          | Prevent refetching a resource that is already cached with the given params                                |
+| timeoutMs         | 3000           | How long a resource should wait after fetching without receiving a response before it is marked as `slow` |
+| dedupeMs          | 2000           | How long a resource should wait before allowing a duplicate fetch with the same params                    |
+| revalidateIfStale | true           | Control whether a resource should revalidate when mounted if there is stale data                          |
+| serialize         | JSON.stringify | Serializer used to stringify fetch parameters                                                             |
+| features          | void           | A list of `ResourceFeatureWithOptions` that add additional behaviours to the resource                     |
 
 ## Adding Features
 
@@ -124,19 +126,39 @@ Example
 import { createFeature, Fetchable, Resource, ResourceFeature } from "@mmuscat/angular-swr"
 
 interface LoggerOptions {
-   logger?: typeof console
+   token?: Type<{ log: (resource: Resource) => void }>
 }
 
 @Injectable({ providedIn: "root" })
 export class Logger implements ResourceFeature<LoggerOptions> {
-   onInit(resource: Resource<T>, { logger = console }: LoggerOptions) {
+   private injector = inject(INJECTOR)
+
+   onInit(resource: Resource<T>, { token }: LoggerOptions) {
+      const logger = this.injector.get(token, console)
       resource.subscribe(() => {
-         logger.log(resource.value)
+         logger.log(resource)
       })
    }
 }
 
-export function logger(options: LoggerOptions = {}) {
-   return createFeature(Logger, options)
+export function logger(token: Type<any>) {
+   return createFeature(Logger, { token })
 }
+```
+
+Usage
+
+```ts
+@Injectable({ providedIn: "root" })
+class MyLogger {
+   log(resource: Resource) {
+      // log implementation
+   }
+}
+
+const RESOURCE = createResource(Fetcher, {
+   features: [
+      logger(MyLogger)
+   ]
+})
 ```
